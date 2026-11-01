@@ -182,6 +182,17 @@ if gt_file is not None and sub_file is not None:
                 "区分": p_name,
                 **p_m
             })
+
+        # 期間1からの累積期間も比較対象に追加
+        for end_period in range(2, min(5, num_periods) + 1):
+            period_names = [f"期間 {p_idx}" for p_idx in range(1, end_period + 1)]
+            combined_label = "+".join(period_names)
+            combined_df = merged[merged["period"].isin(period_names)]
+            combined_m = calc_metrics(combined_df)
+            summary_records.append({
+                "区分": combined_label,
+                **combined_m
+            })
             
         summary_df = pd.DataFrame(summary_records)
 
@@ -223,7 +234,8 @@ if gt_file is not None and sub_file is not None:
         # 期間推移グラフ
         if num_periods > 1:
             st.markdown("### 📈 期間ごとのスコア推移")
-            period_only_df = summary_df[summary_df["区分"] != "全期間 (全体)"].copy()
+            single_period_labels = [f"期間 {i}" for i in range(1, num_periods + 1)]
+            period_only_df = summary_df[summary_df["区分"].isin(single_period_labels)].copy()
             
             p_chart_col1, p_chart_col2 = st.columns(2)
             with p_chart_col1:
@@ -283,7 +295,14 @@ if gt_file is not None and sub_file is not None:
         st.divider()
         st.header("🔍 詳細分析（期間切り替え）")
         
-        target_options = ["全期間 (全体)"] + [f"期間 {i}" for i in range(1, num_periods + 1)]
+        single_period_options = [f"期間 {i}" for i in range(1, num_periods + 1)]
+        period_selection_map = {period: [period] for period in single_period_options}
+        for end_period in range(2, min(5, num_periods) + 1):
+            combined_label = "+".join(f"期間 {i}" for i in range(1, end_period + 1))
+            period_selection_map[combined_label] = [
+                f"期間 {i}" for i in range(1, end_period + 1)
+            ]
+        target_options = ["全期間 (全体)"] + list(period_selection_map)
         selected_period = st.selectbox(
             "分析対象の期間を選択してください",
             target_options,
@@ -295,7 +314,7 @@ if gt_file is not None and sub_file is not None:
         if selected_period == "全期間 (全体)":
             detail_data = merged.copy()
         else:
-            detail_data = merged[merged["period"] == selected_period].copy()
+            detail_data = merged[merged["period"].isin(period_selection_map[selected_period])].copy()
 
         y_true_detail = detail_data["y_true"].values.astype(int)
         y_pred_detail = detail_data["y_pred_prob"].values.astype(float)
