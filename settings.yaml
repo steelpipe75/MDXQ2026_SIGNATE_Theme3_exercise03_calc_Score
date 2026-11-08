@@ -1,0 +1,14 @@
+APP_NAME: "MDXQ2026 SIGNATE Theme 3 Answer APP"  #give your app a nice name
+APP_REQUIREMENTS: #app requirements separated by a '-' on each new line. Requirements MUST be compatible with pyodide. Suggest specifying versions.
+  - streamlit
+  - pandas
+  - numpy
+  - scikit-learn
+  - plotly
+  - matplotlib
+  - seaborn
+APP_ENTRYPOINT: app.py
+CONFIG: config.toml
+SHARED_WORKER: false
+APP_FILES:
+  - app.py
