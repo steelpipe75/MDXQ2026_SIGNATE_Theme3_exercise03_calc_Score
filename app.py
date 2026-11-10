@@ -11,6 +11,8 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
+    matthews_corrcoef,
+    balanced_accuracy_score,
     confusion_matrix,
     roc_curve,
     precision_recall_curve,
@@ -344,6 +346,24 @@ if gt_file is not None and sub_file is not None:
         denom_f1 = precs_grid + recs_grid
         f1s_grid = np.divide(2 * precs_grid * recs_grid, denom_f1, out=np.zeros_like(denom_f1, dtype=float), where=(denom_f1 > 0))
         
+        # Balanced Accuracy = (TPR + TNR) / 2
+        tnrs_grid = np.divide(tn_grid, denom_fpr, out=np.zeros_like(tn_grid, dtype=float), where=(denom_fpr > 0))
+        baccs_grid = (tprs_grid + tnrs_grid) / 2.0
+
+        # MCC = (TP*TN - FP*FN) / sqrt((TP+FP)*(TP+FN)*(TN+FP)*(TN+FN))
+        denom_mcc = np.sqrt(
+            (tp_grid + fp_grid).astype(float)
+            * (tp_grid + fn_grid).astype(float)
+            * (tn_grid + fp_grid).astype(float)
+            * (tn_grid + fn_grid).astype(float)
+        )
+        mccs_grid = np.divide(
+            (tp_grid * tn_grid - fp_grid * fn_grid).astype(float),
+            denom_mcc,
+            out=np.zeros_like(denom_mcc, dtype=float),
+            where=(denom_mcc > 0)
+        )
+
         # 1. Accuracy最良 (最大値)
         cand_acc = np.where(accs_grid == np.max(accs_grid))[0]
         opt_th_acc = float(grid_ths[cand_acc[np.lexsort((-f1s_grid[cand_acc], np.abs(grid_ths[cand_acc] - 0.5)))[0]]])
@@ -368,6 +388,14 @@ if gt_file is not None and sub_file is not None:
         cand_f1 = np.where(f1s_grid == np.max(f1s_grid))[0]
         opt_th_f1 = float(grid_ths[cand_f1[np.argmin(np.abs(grid_ths[cand_f1] - 0.5))]])
 
+        # 7. Balanced Accuracy最良 (最大値)
+        cand_bacc = np.where(baccs_grid == np.max(baccs_grid))[0]
+        opt_th_bacc = float(grid_ths[cand_bacc[np.argmin(np.abs(grid_ths[cand_bacc] - 0.5))]])
+
+        # 8. MCC最良 (最大値)
+        cand_mcc = np.where(mccs_grid == np.max(mccs_grid))[0]
+        opt_th_mcc = float(grid_ths[cand_mcc[np.argmin(np.abs(grid_ths[cand_mcc] - 0.5))]])
+
         # スライダー用セッションステートの初期化 & コールバック
         slider_key = f"th_slider_{selected_period}"
         if slider_key not in st.session_state:
@@ -391,6 +419,8 @@ if gt_file is not None and sub_file is not None:
         prec = precision_score(y_true_detail, y_pred_binary, zero_division=0)
         rec = recall_score(y_true_detail, y_pred_binary, zero_division=0)
         f1 = f1_score(y_true_detail, y_pred_binary, zero_division=0)
+        bacc = balanced_accuracy_score(y_true_detail, y_pred_binary)
+        mcc = matthews_corrcoef(y_true_detail, y_pred_binary)
 
         # 混同行列からTPR (真陽性率) / FPR (偽陽性率) を算出
         cm_sim = confusion_matrix(y_true_detail, y_pred_binary, labels=[0, 1])
@@ -398,7 +428,7 @@ if gt_file is not None and sub_file is not None:
         tpr_val = tp_sim / (tp_sim + fn_sim) if (tp_sim + fn_sim) > 0 else 0.0
         fpr_val = fp_sim / (fp_sim + tn_sim) if (fp_sim + tn_sim) > 0 else 0.0
 
-        s_col1, s_col2, s_col3, s_col4, s_col5, s_col6 = st.columns(6)
+        s_col1, s_col2, s_col3, s_col4, s_col5, s_col6, s_col7, s_col8 = st.columns(8)
         with s_col1:
             st.metric(
                 "Accuracy (正解率)",
@@ -487,6 +517,36 @@ if gt_file is not None and sub_file is not None:
                 args=(slider_key, opt_th_f1),
                 width="stretch",
                 help=f"F1-Scoreが最大（{np.max(f1s_grid):.4f}）となる閾値 {opt_th_f1:.2f} に設定"
+            )
+
+        with s_col7:
+            st.metric(
+                "Balanced Acc",
+                f"{bacc:.4f}",
+                help="(TPR + TNR) / 2 ：不均衡データに対応した正解率（真陽性率と真陰性率の算術平均）"
+            )
+            st.button(
+                f"🎯 最適化 ({opt_th_bacc:.2f})",
+                key=f"btn_bacc_{selected_period}",
+                on_click=set_th_val,
+                args=(slider_key, opt_th_bacc),
+                width="stretch",
+                help=f"Balanced Accuracyが最大（{np.max(baccs_grid):.4f}）となる閾値 {opt_th_bacc:.2f} に設定"
+            )
+
+        with s_col8:
+            st.metric(
+                "MCC (相関係数)",
+                f"{mcc:.4f}",
+                help="Matthews Correlation Coefficient（-1.0〜+1.0）：不均衡データに強く、混同行列の4要素(TP, TN, FP, FN)全体を反映した相関係数"
+            )
+            st.button(
+                f"🎯 最適化 ({opt_th_mcc:.2f})",
+                key=f"btn_mcc_{selected_period}",
+                on_click=set_th_val,
+                args=(slider_key, opt_th_mcc),
+                width="stretch",
+                help=f"MCCが最大（{np.max(mccs_grid):.4f}）となる閾値 {opt_th_mcc:.2f} に設定"
             )
 
         # 詳細タブ表示
