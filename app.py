@@ -634,15 +634,26 @@ if gt_file is not None and sub_file is not None:
         st.divider()
         st.subheader(f"📊 予測確率分布 & データ一覧 ({selected_period})")
         st.markdown(f"### 正解ラベル別の予測確率分布 ({selected_period})")
+
+        hist_bins = st.slider(
+            "ヒストグラムの分割数 (bins)",
+            min_value=10,
+            max_value=100,
+            value=30,
+            step=1,
+            key=f"hist_bins_{selected_period}",
+            help="予測確率の分割数を10〜100の間で調整できます（デフォルト: 30）"
+        )
+
         fig_hist = px.histogram(
             detail_data,
             x="y_pred_prob",
             color=detail_data["y_true"].astype(str),
             barmode="overlay",
-            nbins=30,
+            nbins=hist_bins,
             opacity=0.6,
             labels={"y_pred_prob": "予測確率", "color": "正解ラベル(y)"},
-            title=f"正解ラベルごとの予測確率ヒストグラム ({selected_period})",
+            title=f"正解ラベルごとの予測確率ヒストグラム ({selected_period} / bins={hist_bins})",
             color_discrete_map={"0": "#1f77b4", "1": "#e377c2"}
         )
         fig_hist.add_vline(x=threshold, line_dash="dash", line_color="red", annotation_text=f"閾値 {threshold:.2f}")
