@@ -695,6 +695,134 @@ if gt_file is not None and sub_file is not None:
             st.markdown(f"**陽性比率（正解）**: {y_true_detail.mean()*100:.1f}%")
             st.markdown(f"**陽性比率（予測）**: {y_pred_binary.mean()*100:.1f}%")
 
+        # --- コスト曲線（FN/FPコストの重み付き最適化） ---
+        st.divider()
+        st.subheader(f"💰 コスト曲線（FN / FP コスト最小化）({selected_period})")
+        st.caption(
+            "見逃し（FN）と誤検知（FP）のコストをそれぞれ整数で指定し、"
+            "閾値ごとの総コストを計算して最適閾値を求めます。"
+            "　Cost(th) = c_FN × FN(th) + c_FP × FP(th)"
+        )
+
+        cost_col1, cost_col2 = st.columns(2)
+        with cost_col1:
+            c_fn = st.number_input(
+                "FN コスト（見逃しのコスト）",
+                min_value=1,
+                max_value=1000,
+                value=1,
+                step=1,
+                key=f"c_fn_{selected_period}",
+                help="偽陰性（見逃し: FN）1件あたりのコスト（1以上の整数）"
+            )
+        with cost_col2:
+            c_fp = st.number_input(
+                "FP コスト（誤検知のコスト）",
+                min_value=1,
+                max_value=1000,
+                value=1,
+                step=1,
+                key=f"c_fp_{selected_period}",
+                help="偽陽性（誤検知: FP）1件あたりのコスト（1以上の整数）"
+            )
+
+        # 各閾値での FN / FP 件数 & 総コストを計算
+        cost_arr = c_fn * fn_grid + c_fp * fp_grid
+        opt_cost_idx = int(np.argmin(cost_arr))
+        opt_th_cost = float(grid_ths[opt_cost_idx])
+        opt_cost_val = int(cost_arr[opt_cost_idx])
+
+        # 最適閾値での指標を再計算
+        y_pred_cost_opt = (y_pred_detail >= opt_th_cost).astype(int)
+        cm_cost = confusion_matrix(y_true_detail, y_pred_cost_opt, labels=[0, 1])
+        tn_c, fp_c, fn_c, tp_c = cm_cost.ravel()
+
+        # 最適閾値への適用ボタン
+        st.markdown(
+            f"**最小コスト閾値: `{opt_th_cost:.2f}`　"
+            f"（総コスト = {opt_cost_val:,}　"
+            f"｜　FN = {int(fn_grid[opt_cost_idx]):,}件 × {int(c_fn)}　"
+            f"+ FP = {int(fp_grid[opt_cost_idx]):,}件 × {int(c_fp)}）**"
+        )
+        st.button(
+            f"🎯 コスト最小化閾値 ({opt_th_cost:.2f}) をスライダーに適用",
+            key=f"btn_cost_{selected_period}",
+            on_click=set_th_val,
+            args=(slider_key, opt_th_cost),
+            help=f"FN コスト={int(c_fn)}, FP コスト={int(c_fp)} のとき総コストが最小（{opt_cost_val:,}）になる閾値 {opt_th_cost:.2f} を設定"
+        )
+
+        # コスト曲線グラフ
+        cost_df = pd.DataFrame({
+            "閾値": grid_ths,
+            "総コスト": cost_arr,
+            "FNコスト": c_fn * fn_grid,
+            "FPコスト": c_fp * fp_grid,
+        })
+
+        fig_cost = go.Figure()
+        fig_cost.add_trace(go.Scatter(
+            x=cost_df["閾値"], y=cost_df["総コスト"],
+            mode="lines", name="総コスト (FN+FP)",
+            line=dict(color="#2ca02c", width=2.5)
+        ))
+        fig_cost.add_trace(go.Scatter(
+            x=cost_df["閾値"], y=cost_df["FNコスト"],
+            mode="lines", name=f"FN コスト (×{int(c_fn)})",
+            line=dict(color="#e377c2", width=1.5, dash="dot")
+        ))
+        fig_cost.add_trace(go.Scatter(
+            x=cost_df["閾値"], y=cost_df["FPコスト"],
+            mode="lines", name=f"FP コスト (×{int(c_fp)})",
+            line=dict(color="#1f77b4", width=1.5, dash="dot")
+        ))
+        # 最適閾値の縦線
+        fig_cost.add_vline(
+            x=opt_th_cost, line_dash="dash", line_color="#2ca02c",
+            annotation_text=f"最適閾値 {opt_th_cost:.2f}",
+            annotation_position="top right"
+        )
+        # 現在のスライダー閾値の縦線
+        fig_cost.add_vline(
+            x=threshold, line_dash="dash", line_color="red",
+            annotation_text=f"現在閾値 {threshold:.2f}",
+            annotation_position="top left"
+        )
+        fig_cost.update_layout(
+            title=f"コスト曲線（FN:{int(c_fn)} / FP:{int(c_fp)} の比率）({selected_period})",
+            xaxis_title="閾値",
+            yaxis_title="総コスト",
+            height=420,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_cost, width="stretch")
+
+        # 最適閾値での混同行列詳細
+        cost_detail_col1, cost_detail_col2 = st.columns(2)
+        with cost_detail_col1:
+            st.markdown(f"#### コスト最小化閾値 `{opt_th_cost:.2f}` での混同行列")
+            fig_cm_cost = px.imshow(
+                cm_cost,
+                text_auto=True,
+                labels=dict(x="予測ラベル", y="正解ラベル", color="件数"),
+                x=["予測: 0", "予測: 1"],
+                y=["正解: 0", "正解: 1"],
+                color_continuous_scale="Greens"
+            )
+            fig_cm_cost.update_layout(height=320)
+            st.plotly_chart(fig_cm_cost, width="stretch")
+
+        with cost_detail_col2:
+            st.markdown(f"#### 内訳（閾値 = {opt_th_cost:.2f}）")
+            st.write(f"- **TN（陰性を正しく予測）**: {tn_c:,} 件")
+            st.write(f"- **FP（誤検知）**: {fp_c:,} 件　× コスト {int(c_fp)} = **{fp_c * int(c_fp):,}**")
+            st.write(f"- **FN（見逃し）**: {fn_c:,} 件　× コスト {int(c_fn)} = **{fn_c * int(c_fn):,}**")
+            st.write(f"- **TP（陽性を正しく予測）**: {tp_c:,} 件")
+            st.markdown(f"**総コスト: {fp_c * int(c_fp) + fn_c * int(c_fn):,}**")
+            acc_c = accuracy_score(y_true_detail, y_pred_cost_opt)
+            f1_c = f1_score(y_true_detail, y_pred_cost_opt, zero_division=0)
+            st.markdown(f"Accuracy: `{acc_c:.4f}` ／ F1-Score: `{f1_c:.4f}`")
+
         # --- デシル分析 ---
         st.divider()
         st.subheader(f"📉 デシル分析 ({selected_period})")
