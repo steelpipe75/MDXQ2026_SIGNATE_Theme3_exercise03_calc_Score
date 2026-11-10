@@ -549,116 +549,118 @@ if gt_file is not None and sub_file is not None:
                 help=f"MCCが最大（{np.max(mccs_grid):.4f}）となる閾値 {opt_th_mcc:.2f} に設定"
             )
 
-        # 詳細タブ表示
-        tab1, tab2, tab3 = st.tabs(["ROC曲線 & PR曲線", "混同行列 (Confusion Matrix)", "予測確率分布 & データ一覧"])
+        # --- 詳細可視化（縦並び配置） ---
+        st.divider()
+        st.subheader(f"📈 ROC曲線 & PR曲線 ({selected_period})")
 
-        with tab1:
-            if len(np.unique(y_true_detail)) < 2:
-                st.warning("⚠️ この期間の正解データにはクラスが1種類しかないため、ROC曲線/PR曲線を描画できません。")
-            else:
-                g_col1, g_col2 = st.columns(2)
-                curr_roc = roc_auc_score(y_true_detail, y_pred_detail)
-                curr_pr = average_precision_score(y_true_detail, y_pred_detail)
+        if len(np.unique(y_true_detail)) < 2:
+            st.warning("⚠️ この期間の正解データにはクラスが1種類しかないため、ROC曲線/PR曲線を描画できません。")
+        else:
+            g_col1, g_col2 = st.columns(2)
+            curr_roc = roc_auc_score(y_true_detail, y_pred_detail)
+            curr_pr = average_precision_score(y_true_detail, y_pred_detail)
 
-                # ROC曲線
-                fpr, tpr, _ = roc_curve(y_true_detail, y_pred_detail)
-                fig_roc = go.Figure()
-                fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC (AUC = {curr_roc:.4f})', line=dict(color='#1f77b4', width=2)))
-                fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='ランダム (AUC = 0.5)', line=dict(color='gray', dash='dash')))
-                fig_roc.add_trace(go.Scatter(
-                    x=[fpr_val], y=[tpr_val], mode='markers',
-                    name=f'現在閾値 ({threshold:.2f}): FPR={fpr_val:.3f}, TPR={tpr_val:.3f}',
-                    marker=dict(color='red', size=10, symbol='circle')
-                ))
-                fig_roc.update_layout(
-                    title=f'ROC 曲線 ({selected_period})',
-                    xaxis_title='偽陽性率 (False Positive Rate / FPR)',
-                    yaxis_title='真陽性率 (True Positive Rate / TPR)',
-                    xaxis=dict(range=[-0.02, 1.02]),
-                    yaxis=dict(range=[-0.02, 1.02]),
-                    height=420,
-                )
-                g_col1.plotly_chart(fig_roc, width="stretch")
-
-                # PR曲線
-                precision_vals, recall_vals, _ = precision_recall_curve(y_true_detail, y_pred_detail)
-                baseline = float(y_true_detail.mean())
-                fig_pr = go.Figure()
-                fig_pr.add_trace(go.Scatter(x=recall_vals, y=precision_vals, mode='lines', name=f'PR (AUC = {curr_pr:.4f})', line=dict(color='#ff7f0e', width=2)))
-                fig_pr.add_trace(go.Scatter(x=[0, 1], y=[baseline, baseline], mode='lines', name=f'ベースライン ({baseline:.2f})', line=dict(color='gray', dash='dash')))
-                fig_pr.add_trace(go.Scatter(
-                    x=[rec], y=[prec], mode='markers',
-                    name=f'現在閾値 ({threshold:.2f}): Recall={rec:.3f}, Precision={prec:.3f}',
-                    marker=dict(color='red', size=10, symbol='circle')
-                ))
-                fig_pr.update_layout(
-                    title=f'Precision-Recall (PR) 曲線 ({selected_period})',
-                    xaxis_title='再現率 (Recall / TPR)',
-                    yaxis_title='適合率 (Precision)',
-                    xaxis=dict(range=[-0.02, 1.02]),
-                    yaxis=dict(range=[-0.02, 1.02]),
-                    height=420,
-                )
-                g_col2.plotly_chart(fig_pr, width="stretch")
-
-        with tab2:
-            cm = confusion_matrix(y_true_detail, y_pred_binary)
-            cm_labels = ["正解: 0", "正解: 1"]
-            pred_labels = ["予測: 0", "予測: 1"]
-
-            cm_col1, cm_col2 = st.columns([1, 1])
-            with cm_col1:
-                st.write(f"**混同行列（{selected_period} / 閾値 = {threshold:.2f}）**")
-                fig_cm = px.imshow(
-                    cm,
-                    text_auto=True,
-                    labels=dict(x="予測ラベル", y="正解ラベル", color="件数"),
-                    x=pred_labels,
-                    y=cm_labels,
-                    color_continuous_scale="Blues"
-                )
-                fig_cm.update_layout(height=380)
-                st.plotly_chart(fig_cm, width="stretch")
-
-            with cm_col2:
-                tn, fp, fn, tp = cm.ravel() if cm.shape == (2, 2) else (0, 0, 0, 0)
-                st.markdown(f"### 内訳詳細 ({selected_period})")
-                st.write(f"- **True Negative (TN, 陰性を正しく予測)**: {tn:,} 件")
-                st.write(f"- **False Positive (FP, 偽陽性・誤検知)**: {fp:,} 件")
-                st.write(f"- **False Negative (FN, 偽陰性・見逃し)**: {fn:,} 件")
-                st.write(f"- **True Positive (TP, 陽性を正しく予測)**: {tp:,} 件")
-                st.markdown(f"**陽性比率（正解）**: {y_true_detail.mean()*100:.1f}%")
-                st.markdown(f"**陽性比率（予測）**: {y_pred_binary.mean()*100:.1f}%")
-
-        with tab3:
-            st.markdown(f"### 正解ラベル別の予測確率分布 ({selected_period})")
-            fig_hist = px.histogram(
-                detail_data,
-                x="y_pred_prob",
-                color=detail_data["y_true"].astype(str),
-                barmode="overlay",
-                nbins=30,
-                opacity=0.6,
-                labels={"y_pred_prob": "予測確率", "color": "正解ラベル(y)"},
-                title=f"正解ラベルごとの予測確率ヒストグラム ({selected_period})",
-                color_discrete_map={"0": "#1f77b4", "1": "#e377c2"}
+            # ROC曲線
+            fpr, tpr, _ = roc_curve(y_true_detail, y_pred_detail)
+            fig_roc = go.Figure()
+            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC (AUC = {curr_roc:.4f})', line=dict(color='#1f77b4', width=2)))
+            fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='ランダム (AUC = 0.5)', line=dict(color='gray', dash='dash')))
+            fig_roc.add_trace(go.Scatter(
+                x=[fpr_val], y=[tpr_val], mode='markers',
+                name=f'現在閾値 ({threshold:.2f}): FPR={fpr_val:.3f}, TPR={tpr_val:.3f}',
+                marker=dict(color='red', size=10, symbol='circle')
+            ))
+            fig_roc.update_layout(
+                title=f'ROC 曲線 ({selected_period})',
+                xaxis_title='偽陽性率 (False Positive Rate / FPR)',
+                yaxis_title='真陽性率 (True Positive Rate / TPR)',
+                xaxis=dict(range=[-0.02, 1.02]),
+                yaxis=dict(range=[-0.02, 1.02]),
+                height=420,
             )
-            fig_hist.add_vline(x=threshold, line_dash="dash", line_color="red", annotation_text=f"閾値 {threshold:.2f}")
-            fig_hist.update_layout(height=400)
-            st.plotly_chart(fig_hist, width="stretch")
+            g_col1.plotly_chart(fig_roc, width="stretch")
 
-            st.markdown(f"### データ一覧（誤差確認: {selected_period}）")
-            detail_data["y_pred_binary"] = y_pred_binary
-            detail_data["is_correct"] = (detail_data["y_true"] == detail_data["y_pred_binary"])
-            detail_data["abs_error"] = (detail_data["y_true"] - detail_data["y_pred_prob"]).abs()
-
-            show_only_errors = st.checkbox("誤判定したデータのみ表示", key=f"err_{selected_period}")
-            view_df = detail_data[~detail_data["is_correct"]] if show_only_errors else detail_data
-            st.dataframe(
-                view_df[["id", "period", "y_true", "y_pred_prob", "y_pred_binary", "is_correct", "abs_error"]]
-                .sort_values(by="abs_error", ascending=False),
-                width="stretch"
+            # PR曲線
+            precision_vals, recall_vals, _ = precision_recall_curve(y_true_detail, y_pred_detail)
+            baseline = float(y_true_detail.mean())
+            fig_pr = go.Figure()
+            fig_pr.add_trace(go.Scatter(x=recall_vals, y=precision_vals, mode='lines', name=f'PR (AUC = {curr_pr:.4f})', line=dict(color='#ff7f0e', width=2)))
+            fig_pr.add_trace(go.Scatter(x=[0, 1], y=[baseline, baseline], mode='lines', name=f'ベースライン ({baseline:.2f})', line=dict(color='gray', dash='dash')))
+            fig_pr.add_trace(go.Scatter(
+                x=[rec], y=[prec], mode='markers',
+                name=f'現在閾値 ({threshold:.2f}): Recall={rec:.3f}, Precision={prec:.3f}',
+                marker=dict(color='red', size=10, symbol='circle')
+            ))
+            fig_pr.update_layout(
+                title=f'Precision-Recall (PR) 曲線 ({selected_period})',
+                xaxis_title='再現率 (Recall / TPR)',
+                yaxis_title='適合率 (Precision)',
+                xaxis=dict(range=[-0.02, 1.02]),
+                yaxis=dict(range=[-0.02, 1.02]),
+                height=420,
             )
+            g_col2.plotly_chart(fig_pr, width="stretch")
+
+        st.divider()
+        st.subheader(f"🔲 混同行列 (Confusion Matrix / 閾値 = {threshold:.2f})")
+        cm = confusion_matrix(y_true_detail, y_pred_binary)
+        cm_labels = ["正解: 0", "正解: 1"]
+        pred_labels = ["予測: 0", "予測: 1"]
+
+        cm_col1, cm_col2 = st.columns([1, 1])
+        with cm_col1:
+            st.write(f"**混同行列（{selected_period} / 閾値 = {threshold:.2f}）**")
+            fig_cm = px.imshow(
+                cm,
+                text_auto=True,
+                labels=dict(x="予測ラベル", y="正解ラベル", color="件数"),
+                x=pred_labels,
+                y=cm_labels,
+                color_continuous_scale="Blues"
+            )
+            fig_cm.update_layout(height=380)
+            st.plotly_chart(fig_cm, width="stretch")
+
+        with cm_col2:
+            tn, fp, fn, tp = cm.ravel() if cm.shape == (2, 2) else (0, 0, 0, 0)
+            st.markdown(f"### 内訳詳細 ({selected_period})")
+            st.write(f"- **True Negative (TN, 陰性を正しく予測)**: {tn:,} 件")
+            st.write(f"- **False Positive (FP, 偽陽性・誤検知)**: {fp:,} 件")
+            st.write(f"- **False Negative (FN, 偽陰性・見逃し)**: {fn:,} 件")
+            st.write(f"- **True Positive (TP, 陽性を正しく予測)**: {tp:,} 件")
+            st.markdown(f"**陽性比率（正解）**: {y_true_detail.mean()*100:.1f}%")
+            st.markdown(f"**陽性比率（予測）**: {y_pred_binary.mean()*100:.1f}%")
+
+        st.divider()
+        st.subheader(f"📊 予測確率分布 & データ一覧 ({selected_period})")
+        st.markdown(f"### 正解ラベル別の予測確率分布 ({selected_period})")
+        fig_hist = px.histogram(
+            detail_data,
+            x="y_pred_prob",
+            color=detail_data["y_true"].astype(str),
+            barmode="overlay",
+            nbins=30,
+            opacity=0.6,
+            labels={"y_pred_prob": "予測確率", "color": "正解ラベル(y)"},
+            title=f"正解ラベルごとの予測確率ヒストグラム ({selected_period})",
+            color_discrete_map={"0": "#1f77b4", "1": "#e377c2"}
+        )
+        fig_hist.add_vline(x=threshold, line_dash="dash", line_color="red", annotation_text=f"閾値 {threshold:.2f}")
+        fig_hist.update_layout(height=400)
+        st.plotly_chart(fig_hist, width="stretch")
+
+        st.markdown(f"### データ一覧（誤差確認: {selected_period}）")
+        detail_data["y_pred_binary"] = y_pred_binary
+        detail_data["is_correct"] = (detail_data["y_true"] == detail_data["y_pred_binary"])
+        detail_data["abs_error"] = (detail_data["y_true"] - detail_data["y_pred_prob"]).abs()
+
+        show_only_errors = st.checkbox("誤判定したデータのみ表示", key=f"err_{selected_period}")
+        view_df = detail_data[~detail_data["is_correct"]] if show_only_errors else detail_data
+        st.dataframe(
+            view_df[["id", "period", "y_true", "y_pred_prob", "y_pred_binary", "is_correct", "abs_error"]]
+            .sort_values(by="abs_error", ascending=False),
+            width="stretch"
+        )
 
         # 評価結果のCSVダウンロード（全期間分・期間列付き）
         st.divider()
