@@ -631,6 +631,120 @@ if gt_file is not None and sub_file is not None:
             st.markdown(f"**陽性比率（正解）**: {y_true_detail.mean()*100:.1f}%")
             st.markdown(f"**陽性比率（予測）**: {y_pred_binary.mean()*100:.1f}%")
 
+        # --- デシル分析 ---
+        st.divider()
+        st.subheader(f"📉 デシル分析 ({selected_period})")
+        st.caption("予測確率を高い順に10等分（デシル）し、各グループの陽性率・累積捕捉率を確認します。")
+
+        n_total = len(detail_data)
+        # デシル番号を付与（1 = 予測確率が高いグループ）
+        decile_data = detail_data.copy()
+        decile_data["decile"] = pd.qcut(
+            decile_data["y_pred_prob"],
+            q=10,
+            labels=False,
+            duplicates="drop"
+        )
+        # qcut は昇順ラベル(0-9)なので反転して デシル1 = 最高予測確率グループ
+        decile_data["decile"] = decile_data["decile"].max() - decile_data["decile"] + 1
+
+        total_pos = int(decile_data["y_true"].sum())
+
+        decile_summary = (
+            decile_data.groupby("decile", sort=True)
+            .agg(
+                件数=("y_true", "count"),
+                陽性数=("y_true", "sum"),
+                予測確率_平均=("y_pred_prob", "mean"),
+                予測確率_最大=("y_pred_prob", "max"),
+                予測確率_最小=("y_pred_prob", "min"),
+            )
+            .reset_index()
+        )
+        decile_summary["陽性率(%)"] = (decile_summary["陽性数"] / decile_summary["件数"] * 100).round(2)
+        decile_summary["累積陽性数"] = decile_summary["陽性数"].cumsum()
+        decile_summary["累積捕捉率(%)"] = (
+            decile_summary["累積陽性数"] / total_pos * 100
+            if total_pos > 0 else 0
+        ).round(2)
+        # ランダムの陽性率（ベースライン）
+        baseline_pos_rate = total_pos / n_total * 100 if n_total > 0 else 0
+        decile_summary["リフト値"] = (decile_summary["陽性率(%)"] / baseline_pos_rate).round(3) if baseline_pos_rate > 0 else np.nan
+
+        # デシル分析テーブル表示
+        display_decile = decile_summary[[
+            "decile", "件数", "陽性数", "陽性率(%)",
+            "累積陽性数", "累積捕捉率(%)", "リフト値",
+            "予測確率_平均", "予測確率_最大", "予測確率_最小"
+        ]].copy()
+        display_decile.columns = [
+            "デシル", "件数", "陽性数", "陽性率(%)",
+            "累積陽性数", "累積捕捉率(%)", "リフト値",
+            "予測確率（平均）", "予測確率（最大）", "予測確率（最小）"
+        ]
+        display_decile["予測確率（平均）"] = display_decile["予測確率（平均）"].round(4)
+        display_decile["予測確率（最大）"] = display_decile["予測確率（最大）"].round(4)
+        display_decile["予測確率（最小）"] = display_decile["予測確率（最小）"].round(4)
+        st.dataframe(display_decile, hide_index=True, width="stretch")
+
+        # デシル分析グラフ（2カラム）
+        dc_col1, dc_col2 = st.columns(2)
+
+        with dc_col1:
+            fig_decile_bar = go.Figure()
+            fig_decile_bar.add_trace(go.Bar(
+                x=decile_summary["decile"].astype(str),
+                y=decile_summary["陽性率(%)"],
+                name="陽性率(%)",
+                marker_color="#e377c2",
+                text=decile_summary["陽性率(%)"].apply(lambda v: f"{v:.1f}%"),
+                textposition="outside"
+            ))
+            fig_decile_bar.add_hline(
+                y=baseline_pos_rate,
+                line_dash="dash",
+                line_color="gray",
+                annotation_text=f"ベースライン ({baseline_pos_rate:.1f}%)"
+            )
+            fig_decile_bar.update_layout(
+                title=f"デシル別 陽性率 ({selected_period})",
+                xaxis_title="デシル（1 = 予測確率が高いグループ）",
+                yaxis_title="陽性率 (%)",
+                height=400,
+                xaxis=dict(type="category")
+            )
+            st.plotly_chart(fig_decile_bar, width="stretch")
+
+        with dc_col2:
+            fig_lift = go.Figure()
+            fig_lift.add_trace(go.Scatter(
+                x=decile_summary["decile"].astype(str),
+                y=decile_summary["累積捕捉率(%)"],
+                mode="lines+markers",
+                name="累積捕捉率(%)",
+                line=dict(color="#1f77b4", width=2.5),
+                marker=dict(size=8),
+            ))
+            # ランダムモデルの累積捕捉率（線形）
+            random_capture = [(i / len(decile_summary)) * 100 for i in range(1, len(decile_summary) + 1)]
+            fig_lift.add_trace(go.Scatter(
+                x=decile_summary["decile"].astype(str),
+                y=random_capture,
+                mode="lines",
+                name="ランダム（参考）",
+                line=dict(color="gray", dash="dash")
+            ))
+            fig_lift.update_layout(
+                title=f"累積捕捉率（ゲイン曲線）({selected_period})",
+                xaxis_title="デシル（上位 N デシルまで）",
+                yaxis_title="累積捕捉率 (%)",
+                height=400,
+                yaxis=dict(range=[0, 105]),
+                xaxis=dict(type="category"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_lift, width="stretch")
+
         st.divider()
         st.subheader(f"📊 予測確率分布 & データ一覧 ({selected_period})")
         st.markdown(f"### 正解ラベル別の予測確率分布 ({selected_period})")
