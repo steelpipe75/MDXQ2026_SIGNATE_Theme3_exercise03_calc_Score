@@ -293,6 +293,70 @@ if gt_file is not None and sub_file is not None:
                 )
                 st.plotly_chart(fig_loss, width="stretch")
 
+            # --- 累積期間スコア推移グラフ ---
+            st.markdown("### 📈 累積期間スコア推移（期間1から順次追加）")
+
+            cum_records = []
+            for end_p in range(1, num_periods + 1):
+                period_names_cum = [f"期間 {i}" for i in range(1, end_p + 1)]
+                cum_df = merged[merged["period"].isin(period_names_cum)]
+                cum_m = calc_metrics(cum_df)
+                label = f"期間 {end_p}" if end_p == 1 else f"期間 1〜{end_p}"
+                cum_records.append({"区分": label, **cum_m})
+            # 末尾に「全期間」を追加（最後の累積と同じだが明示的に表示）
+            cum_records.append({"区分": "全期間", **overall_m})
+            cum_chart_df = pd.DataFrame(cum_records)
+
+            cum_col1, cum_col2 = st.columns(2)
+
+            with cum_col1:
+                fig_cum_auc = go.Figure()
+                fig_cum_auc.add_trace(go.Scatter(
+                    x=cum_chart_df["区分"],
+                    y=cum_chart_df["ROC-AUC"],
+                    mode="lines+markers",
+                    name="ROC-AUC",
+                    line=dict(color="#1f77b4", width=2.5),
+                    marker=dict(size=8)
+                ))
+                fig_cum_auc.add_trace(go.Scatter(
+                    x=cum_chart_df["区分"],
+                    y=cum_chart_df["PR-AUC"],
+                    mode="lines+markers",
+                    name="PR-AUC",
+                    line=dict(color="#ff7f0e", width=2.5),
+                    marker=dict(size=8)
+                ))
+                fig_cum_auc.update_layout(
+                    title="累積期間 ROC-AUC / PR-AUC 推移",
+                    xaxis_title="累積期間",
+                    yaxis_title="スコア",
+                    height=380,
+                    xaxis=dict(type="category"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_cum_auc, width="stretch")
+
+            with cum_col2:
+                fig_cum_loss = go.Figure()
+                fig_cum_loss.add_trace(go.Scatter(
+                    x=cum_chart_df["区分"],
+                    y=cum_chart_df["Log Loss"],
+                    mode="lines+markers",
+                    name="Log Loss",
+                    line=dict(color="#d62728", width=2.5),
+                    marker=dict(size=8)
+                ))
+                fig_cum_loss.update_layout(
+                    title="累積期間 Log Loss 推移 (低いほど良い)",
+                    xaxis_title="累積期間",
+                    yaxis_title="Log Loss",
+                    height=380,
+                    xaxis=dict(type="category"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_cum_loss, width="stretch")
+
         # --- 対象期間の選択 & 詳細分析 ---
         st.divider()
         st.header("🔍 詳細分析（期間切り替え）")
