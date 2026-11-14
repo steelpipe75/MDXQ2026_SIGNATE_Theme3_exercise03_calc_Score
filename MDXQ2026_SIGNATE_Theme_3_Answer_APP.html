@@ -27,6 +27,7 @@ mount(
     pyodideUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide.js",
     files: {
 "app.py": `
+import io
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1008,18 +1009,75 @@ if gt_file is not None and sub_file is not None:
             width="stretch"
         )
 
-        # 評価結果のCSVダウンロード（全期間分・期間列付き）
+        # ---- 評価レポート CSV ダウンロード ----
         st.divider()
+        st.subheader("📥 評価レポート CSV ダウンロード")
+        st.caption(
+            "全期間評価データ・混同行列（スライダー閾値 / コスト最小化閾値）・デシル分析を"
+            "1つのCSVファイルにまとめてダウンロードします。"
+        )
+
+        # 全期間データに閾値を適用して列を更新
         merged["y_pred_binary"] = (merged["y_pred_prob"] >= threshold).astype(int)
         merged["is_correct"] = (merged["y_true"] == merged["y_pred_binary"])
         merged["abs_error"] = (merged["y_true"] - merged["y_pred_prob"]).abs()
-        
-        csv_data = merged[["id", "period", "y_true", "y_pred_prob", "y_pred_binary", "is_correct", "abs_error"]].to_csv(index=False).encode('utf-8_sig')
+
+        buf = io.StringIO()
+
+        # ===== セクション1: 閾値・コスト設定情報 =====
+        buf.write("# 閾値・コスト設定情報\\n")
+        buf.write(f"スライダー閾値,{threshold:.2f}\\n")
+        buf.write(f"コスト最小化閾値,{opt_th_cost:.2f}\\n")
+        buf.write(f"FNコスト（見逃し）,{int(c_fn)}\\n")
+        buf.write(f"FPコスト（誤検知）,{int(c_fp)}\\n")
+        buf.write(f"詳細分析対象期間,{selected_period}\\n")
+        buf.write("\\n")
+
+        # ===== セクション2: 全期間評価データ =====
+        buf.write("# 全期間 評価データ\\n")
+        (
+            merged[["id", "period", "y_true", "y_pred_prob", "y_pred_binary", "is_correct", "abs_error"]]
+            .to_csv(buf, index=False)
+        )
+        buf.write("\\n")
+
+        # ===== セクション3: 混同行列（スライダー閾値 / 選択期間） =====
+        buf.write(f"# 混同行列 --- 対象期間: {selected_period} / スライダー閾値: {threshold:.2f}\\n")
+        buf.write(",予測: 0,予測: 1\\n")
+        buf.write(f"正解: 0,{tn_sim},{fp_sim}\\n")
+        buf.write(f"正解: 1,{fn_sim},{tp_sim}\\n")
+        buf.write(f"Accuracy,{acc:.4f}\\n")
+        buf.write(f"Precision,{prec:.4f}\\n")
+        buf.write(f"Recall,{rec:.4f}\\n")
+        buf.write(f"F1-Score,{f1:.4f}\\n")
+        buf.write(f"Balanced Accuracy,{bacc:.4f}\\n")
+        buf.write(f"MCC,{mcc:.4f}\\n")
+        buf.write("\\n")
+
+        # ===== セクション4: 混同行列（コスト最小化閾値 / 選択期間） =====
+        buf.write(
+            f"# 混同行列 --- 対象期間: {selected_period}"
+            f" / コスト最小化閾値: {opt_th_cost:.2f}"
+            f" (FNコスト: {int(c_fn)}  FPコスト: {int(c_fp)})\\n"
+        )
+        buf.write(",予測: 0,予測: 1\\n")
+        buf.write(f"正解: 0,{tn_c},{fp_c}\\n")
+        buf.write(f"正解: 1,{fn_c},{tp_c}\\n")
+        buf.write(f"総コスト,{fp_c * int(c_fp) + fn_c * int(c_fn)}\\n")
+        buf.write(f"Accuracy,{acc_c:.4f}\\n")
+        buf.write(f"F1-Score,{f1_c:.4f}\\n")
+        buf.write("\\n")
+
+        # ===== セクション5: デシル分析 =====
+        buf.write(f"# デシル分析 --- 対象期間: {selected_period}\\n")
+        display_decile.to_csv(buf, index=False)
+
+        csv_bytes = buf.getvalue().encode("utf-8_sig")
         st.download_button(
-            "📥 全期間の結合評価データ（期間列付き）をCSVダウンロード",
-            data=csv_data,
-            file_name="evaluation_result_with_periods.csv",
-            mime="text/csv"
+            "📥 評価レポートをCSVダウンロード（全期間データ・混同行列×2・デシル分析）",
+            data=csv_bytes,
+            file_name="evaluation_report.csv",
+            mime="text/csv",
         )
 
     except Exception as e:
